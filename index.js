@@ -1,5 +1,6 @@
 import { fromEvent } from "rxjs";
 import { filter } from "rxjs/operators";
+import { parse } from "acorn";
 
 let source = {};
 let history = [];
@@ -8,7 +9,7 @@ let pos = 0;
 let htmlConsoleField = document.querySelector(".consoleField");
 
 let fieldWhileEnter = fromEvent(htmlConsoleField, "keyup").pipe(
-  filter((e) => e.keyCode == 13)
+  filter((e) => e.keyCode == 13 && !e.shiftKey)
 );
 
 let fieldWhileArrowUp = fromEvent(htmlConsoleField, "keyup").pipe(
@@ -34,24 +35,46 @@ fieldWhileArrowDown.subscribe(() => {
 fieldWhileEnter.subscribe((e) => {
   let value = e.target.value.trim("↵");
   let arr = value.split(" ");
-  let keyValue = value.split("=");
+
   history.push(value);
   pos = history.length;
 
-  keyValue = keyValue[keyValue.length - 1];
+  let parsedValue = parse(value).body[0];
 
-  if (["var", "let"].includes(arr[0])) {
-    return add([arr[1]], keyValue);
+  if (parsedValue.type === "VariableDeclaration") {
+    let inputValue;
+    let inputValueObj = parsedValue.declarations[0].init;
+    if (
+      inputValueObj.type === "FunctionExpression" ||
+      inputValueObj.type === "ArrowFunctionExpression"
+    ) {
+      inputValue = value.split("=")[1];
+    } else {
+      inputValue = parsedValue.declarations[0].init.value;
+    }
+    let checkObjectExist = source[arr[1]];
+
+    if (checkObjectExist && parsedValue.kind === "const") {
+      console.error(`Refrance error ${arr[1]} already in existance`);
+      htmlConsoleField.value = "";
+      return;
+    } else {
+      return add([arr[1]], { value: inputValue, type: parsedValue.kind });
+    }
   }
 
-  const checkObjectExist = source[arr[0]];
-
-  if (checkObjectExist?.length > 0) {
-    return print(checkObjectExist);
+  var checkObjectExist = source[arr[0]];
+  if (checkObjectExist && checkObjectExist.value) {
+    return print(checkObjectExist.value);
   }
 
-  if (eval(value)) {
-    return print(eval(value));
+  try {
+    if (eval(value)) {
+      return print(eval(value));
+    }
+  } catch (error) {
+    console.error(error);
+    htmlConsoleField.value = "";
   }
 
   return print(undefined);
@@ -68,6 +91,6 @@ const add = (...data) => {
 
 const print = (value) => {
   const resultsElement = document.getElementById("output");
-  resultsElement.innerHTML = value;
   htmlConsoleField.value = "";
+  resultsElement.innerHTML = value;
 };
